@@ -1,14 +1,24 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import cloudscraper
-import time, os, sys, re, json
+import time
+import os
+import sys
+import re
+import json
+from zipfile import ZipFile
 
-A_VERSION = "0.1.4"
 
-def dl(manga_id, lang_code="gb"):
+A_VERSION = "0.1.6"
+LANG_CODE = "gb"
+
+
+def dl(mangadex_id, raw_chapters, download_path):
 	# grab manga info json from api
+	manga = ""
+	title = ""
 	scraper = cloudscraper.create_scraper()
 	try:
-		r = scraper.get("https://mangadex.org/api/manga/{}/".format(manga_id))
+		r = scraper.get("https://mangadex.org/api/manga/{}/".format(mangadex_id))
 		manga = json.loads(r.text)
 	except (json.decoder.JSONDecodeError, ValueError) as err:
 		print("CloudFlare error: {}".format(err))
@@ -16,31 +26,20 @@ def dl(manga_id, lang_code="gb"):
 
 	try:
 		title = manga["manga"]["title"]
-	except:
+	except KeyError:
 		print("Please enter a MangaDex manga (not chapter) URL.")
 		exit(1)
 	print("\nTitle: {}".format(title))
 
-	# i/o for chapters to download
-	requested_chapters = []
-	chap_list = input("Enter chapter(s) to download: ").strip()
-	chap_list = [s for s in chap_list.split(',')]
-	for s in chap_list:
-		if "-" in s:
-			r = [int(float(n)) for n in s.split('-')]
-			s = list(range(r[0], r[1]+1))
-		else:
-			s = [float(s)]
-		requested_chapters.extend(s)
-
-	# find out which are availble to dl (in english for now)
+	requested_chapters = gather_chapters(raw_chapters)
+	# find out which are available to dl (in english for now)
 	chaps_to_dl = []
 
 	for chapter_id in manga["chapter"]:
 		chapter_num = float(manga["chapter"][chapter_id]["chapter"])
 		chapter_group = manga["chapter"][chapter_id]["group_name"]
-		if chapter_num in requested_chapters and manga["chapter"][chapter_id]["lang_code"] == lang_code:
-			chaps_to_dl.append((str(chapter_num).replace(".0",""), chapter_id, chapter_group))
+		if chapter_num in requested_chapters and manga["chapter"][chapter_id]["lang_code"] == LANG_CODE:
+			chaps_to_dl.append((str(chapter_num).replace(".0", ""), chapter_id, chapter_group))
 	chaps_to_dl.sort()
 
 	if len(chaps_to_dl) == 0:
@@ -64,36 +63,70 @@ def dl(manga_id, lang_code="gb"):
 			images.append("{}{}/{}".format(server, hashcode, page))
 
 		# download images
-		groupname = chapter_id[2].replace("/","-")
-		for url in images:
-			filename = os.path.basename(url)
-			dest_folder = os.path.join(os.getcwd(), "download", title, "c{} [{}]".format(chapter_id[0].zfill(3), groupname))
+		dest_folder = ""
+		pattern = re.compile(r'([^\s\w]|_)+')
+		sanitized_title = pattern.sub('', title)
+		manga_archive_name = "{0} - Chapter {1}.cbz".format(sanitized_title, chapter_id[0])
+		page_num = 1
+		for img in images:
+			_, extension = os.path.splitext(img)
+			filename = str(page_num).zfill(3) + extension
+			dest_folder = os.path.join("/tmp", "download", "{0}_c{1}".format(mangadex_id, chapter_id[0]))
 			if not os.path.exists(dest_folder):
 				os.makedirs(dest_folder)
 			outfile = os.path.join(dest_folder, filename)
 
-			r = scraper.get(url)
+			r = scraper.get(img)
 			if r.status_code == 200:
 				with open(outfile, 'wb') as f:
 					f.write(r.content)
 			else:
-				print("Encountered Error {} when downloading.".format(e.code))
+				print("Encountered Error {} when downloading.".format(r.code))
 
 			print(" Downloaded page {}.".format(re.sub("\\D", "", filename)))
-			time.sleep(1)
+			page_num += 1
+		files = get_all_file_paths(dest_folder)
+		create_cbz_archive(files, manga_archive_name, download_path)
 
-	print("Done!")
+
+def gather_chapters(raw_chapters):
+	requested_chapters = []
+	chap_list = raw_chapters
+	chap_list = [s for s in chap_list.split(',')]
+	for s in chap_list:
+		if "-" in s:
+			r = [int(float(n)) for n in s.split('-')]
+			s = list(range(r[0], r[1]+1))
+		else:
+			s = [float(s)]
+		requested_chapters.extend(s)
+	return requested_chapters
+
+
+def create_cbz_archive(file_paths, archive_name, download_path):
+	base_bath = os.getcwd()
+	if download_path != "":
+		base_bath = download_path
+	with ZipFile(os.path.join(base_bath, archive_name), 'w') as z:
+		for file in file_paths:
+			z.write(file)
+
+
+def get_all_file_paths(directory):
+	file_paths = []
+	for root, directories, files in os.walk(directory):
+		for filename in files:
+			filepath = os.path.join(root, filename)
+			file_paths.append(filepath)
+	return file_paths
+
 
 if __name__ == "__main__":
-	print("mangadex-dl v{}".format(A_VERSION))
-
-	if len(sys.argv) > 1:
-		lang_code = sys.argv[1]
-	else:
-		lang_code = "gb"
-
-	url = ""
-	while url == "":
-		url = input("Enter manga URL: ").strip()
+	url = sys.argv[1]
+	chapters = sys.argv[2]
+	download_path = ""
+	if len(sys.argv) == 4:
+		download_path = sys.argv[3]
 	manga_id = re.search("[0-9]+", url).group(0)
-	dl(manga_id, lang_code)
+	dl(manga_id, chapters, download_path)
+
