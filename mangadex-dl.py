@@ -97,7 +97,10 @@ def gather_chapters(raw_chapters):
 
 
 def create_cbz_archive(file_paths, title, archive_name, base_path):
-	with ZipFile(os.path.join(base_path, title, archive_name), 'w') as z:
+	full_path = os.path.join(base_path, title)
+	if not os.path.exists(full_path):
+		os.makedirs(full_path)
+	with ZipFile(os.path.join(full_path, archive_name), 'w') as z:
 		for file in file_paths:
 			z.write(file)
 
