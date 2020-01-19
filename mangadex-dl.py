@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 import cloudscraper
-import time
 import os
 import sys
 import re
 import json
 from zipfile import ZipFile
-
 
 A_VERSION = "0.1.6"
 LANG_CODE = "gb"
@@ -29,7 +27,6 @@ def dl(mangadex_id, raw_chapters, download_path):
 	except KeyError:
 		print("Please enter a MangaDex manga (not chapter) URL.")
 		exit(1)
-	print("\nTitle: {}".format(title))
 
 	requested_chapters = gather_chapters(raw_chapters)
 	# find out which are available to dl (in english for now)
@@ -45,15 +42,11 @@ def dl(mangadex_id, raw_chapters, download_path):
 	if len(chaps_to_dl) == 0:
 		print("No chapters available to download!")
 		exit(0)
-
-	# get chapter(s) json
-	print()
+	chapter_count = 0
 	for chapter_id in chaps_to_dl:
-		print("Downloading chapter {}...".format(chapter_id[0]))
 		r = scraper.get("https://mangadex.org/api/chapter/{}/".format(chapter_id[1]))
 		chapter = json.loads(r.text)
 
-		# get url list
 		images = []
 		server = chapter["server"]
 		if "mangadex.org" not in server:
@@ -82,11 +75,13 @@ def dl(mangadex_id, raw_chapters, download_path):
 					f.write(r.content)
 			else:
 				print("Encountered Error {} when downloading.".format(r.code))
-
-			print(" Downloaded page {}.".format(re.sub("\\D", "", filename)))
+				sys.exit(1)
 			page_num += 1
 		files = get_all_file_paths(dest_folder)
 		create_cbz_archive(files, manga_archive_name, download_path)
+		chapter_count += 1
+	print("Downloaded {0}/{1} chapters of: {2} into {3}".format(chapter_count, len(chaps_to_dl), title, download_path))
+	exit(0)
 
 
 def gather_chapters(raw_chapters):
@@ -103,11 +98,8 @@ def gather_chapters(raw_chapters):
 	return requested_chapters
 
 
-def create_cbz_archive(file_paths, archive_name, download_path):
-	base_bath = os.getcwd()
-	if download_path != "":
-		base_bath = download_path
-	with ZipFile(os.path.join(base_bath, archive_name), 'w') as z:
+def create_cbz_archive(file_paths, archive_name, base_path):
+	with ZipFile(os.path.join(base_path, archive_name), 'w') as z:
 		for file in file_paths:
 			z.write(file)
 
@@ -127,6 +119,8 @@ if __name__ == "__main__":
 	download_path = ""
 	if len(sys.argv) == 4:
 		download_path = sys.argv[3]
+	else:
+		download_path = os.getcwd()
 	manga_id = re.search("[0-9]+", url).group(0)
 	dl(manga_id, chapters, download_path)
 
